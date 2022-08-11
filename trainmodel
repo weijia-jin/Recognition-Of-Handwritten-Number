@@ -1,0 +1,186 @@
+# -*- coding: utf-8 -*-
+from __future__ import print_function, division
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.optim import lr_scheduler
+from torchvision import transforms
+import time
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from torchvision.datasets import mnist
+from torch.utils.data import DataLoader
+import torch.nn.functional as F
+import os
+os.environ['KMP_DUPLICATE_LIB_OK']="TRUE"
+
+class Net(nn.Module):
+    def __init__(self, in_dim, n_hidden_1, n_hidden_2, out_dim):
+        super(Net, self).__init__()
+        self.layer1 = nn.Sequential(
+            nn.Linear(in_dim, n_hidden_1), nn.BatchNorm1d(n_hidden_1))
+        self.layer2 = nn.Sequential(
+            nn.Linear(n_hidden_1, n_hidden_2), nn.BatchNorm1d(n_hidden_2))
+        self.layer3 = nn.Sequential(nn.Linear(n_hidden_2, out_dim))
+        
+    def forward(self, x):
+        x = F.relu(self.layer1(x))
+        x = F.relu(self.layer2(x))
+        x = self.layer3(x)
+        return x
+
+def train_model(model, criterion, optimizer, scheduler, num_epochs):
+    since = time.time()
+
+    best_model_wts = model.state_dict()
+    best_acc = 0.0
+    plot_train_loss = []
+    plot_train_acc = []
+    plot_val_loss = []
+    plot_val_acc = []
+    for epoch in range(num_epochs):
+        begin_time = time.time()
+        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+        print('-' * 10)
+
+        # Each epoch has a training and validation phase
+        for phase in ['train', 'val']:
+            count_batch = 0
+            if phase == 'train':
+                scheduler.step()
+                model.train()  # Set model to training mode
+                dataloders = train_loader
+                dataset_sizes = 60000
+            else:
+                model.eval()   # Set model to evaluate mode
+                dataloders = test_loader
+                dataset_sizes = 10000
+
+            running_loss = 0.0
+            running_corrects = 0.0
+
+            # Iterate over data.
+            
+            for inputs, labels in dataloders:
+                count_batch += 1
+                inputs = inputs.to(device)
+                inputs = inputs.view(inputs.size(0), -1)
+                labels = labels.to(device)
+                # zero the parameter gradients
+                optimizer.zero_grad()
+                # forward
+                outputs = model(inputs)
+                _, preds = torch.max(outputs, 1)
+                loss = criterion(outputs, labels)
+                # backward + optimize only if in training phase
+                if phase == 'train':
+                    loss.backward()
+                    optimizer.step()
+                # statistics
+                running_loss += loss.item()
+                running_corrects += torch.sum(preds == labels.data).to(torch.float32)
+
+                # print result every 10 batch
+                if count_batch%10 == 0:
+                    batch_loss = running_loss / (batch_size*count_batch)
+                    batch_acc = running_corrects / (batch_size*count_batch)
+                    if phase == 'train':
+                        plot_train_loss.append(np.double(batch_loss))
+                        plot_train_acc.append(np.double(batch_acc))
+                    else:
+                        plot_val_loss.append(np.double(batch_loss))
+                        plot_val_acc.append(np.double(batch_acc))
+
+                    print('{} Epoch [{}] Batch [{}] Loss: {:.4f} Acc: {:.4f} Time: {:.4f}s'. \
+                          format(phase, epoch, count_batch, batch_loss, batch_acc, time.time()-begin_time))
+                    begin_time = time.time()
+
+            epoch_loss = running_loss / dataset_sizes
+            epoch_acc = running_corrects / dataset_sizes
+            print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
+
+            # save model
+            if phase == 'train':
+                if not os.path.exists('bp'):
+                    os.makedirs('bp')
+                torch.save(model, 'bp/bp_epoch{}.pkl'.format(epoch))
+
+            # deep copy the model
+            if phase == 'val' and epoch_acc > best_acc:
+                best_acc = epoch_acc
+                best_model_wts = model.state_dict()
+                
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(
+        time_elapsed // 60, time_elapsed % 60))
+    print('Best val Acc: {:4f}'.format(best_acc))
+
+    # load best model weights
+    model.load_state_dict(best_model_wts)
+    return model,plot_train_loss,plot_train_acc,plot_val_loss,plot_val_acc
+
+if __name__ == '__main__':
+    # transform
+    transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize([0.5], [0.5])])
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # 
+    batch_size = 64
+    num_class = 10
+    num_epoches = 3
+    # data
+    is_downloda = True
+    if os.path.exists('./data/MNIST'):
+        is_downloda = False
+    # 下载数据，并对数据进行预处理
+    train_dataset = mnist.MNIST(
+        './data', train=True, transform=transform, download=is_downloda)
+    test_dataset = mnist.MNIST('./data', train=False, transform=transform)
+    # dataloader是一个可迭代对象，可以使用迭代器一样使用。
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=False)
+    # Model
+    model_ft = Net(28 * 28, 300, 100, 10)
+    # define cost function
+    criterion = nn.CrossEntropyLoss()
+    # Observe that all parameters are being optimized
+    optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.005, momentum=0.9)
+    # Decay LR by a factor of 0.2 every 5 epochs
+    exp_lr_scheduler = lr_scheduler.StepLR(optimizer_ft, step_size=5, gamma=0.2)
+    # train model
+    model_ft ,plot_train_loss,plot_train_acc,plot_val_loss,plot_val_acc= train_model(model=model_ft,
+                            criterion=criterion,
+                            optimizer=optimizer_ft,
+                            scheduler=exp_lr_scheduler,
+                            num_epochs=num_epoches,
+                            )
+    # 描绘训练细节图
+    epochstrain = np.linspace(0, num_epoches, len(plot_train_acc))
+    epochsval = np.linspace(0, num_epoches, len(plot_val_acc))
+    plt.plot(epochstrain, plot_train_acc, 'b-')
+    plt.plot(epochsval, plot_val_acc, 'r')
+    plt.ylabel("accuracy")
+    plt.xlabel("epoch")
+    plt.legend(["train", "val"],loc= 'best')
+    plt.rcParams['savefig.dpi'] = 300
+    plt.rcParams['figure.dpi'] = 300
+    plt.title('Training and validation accuracy')
+    plt.show()
+    
+    plt.plot(epochstrain, plot_train_loss, 'b-')
+    plt.plot(epochsval, plot_val_loss, 'r-')
+    plt.ylabel("loss")
+    plt.xlabel("epoch")
+    plt.legend(["train", "val"],loc= 'best')
+    plt.rcParams['savefig.dpi'] = 300
+    plt.rcParams['figure.dpi'] = 300 
+    plt.title('Training and validation loss')
+    plt.show()
+    # # save best model
+    # torch.save(model_ft,"bp/best_bp.pkl")
+
+
+
+
