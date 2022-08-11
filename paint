@@ -1,0 +1,38 @@
+from PyQt5 import QtWidgets, QtCore, QtGui
+from PyQt5.QtGui import *
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import *
+
+class Paint(QLabel):
+    location = []
+    def paintEvent(self, event):
+        user = QPainter()
+        user.begin(self)
+        user.setPen(QPen(Qt.black, 16, Qt.SolidLine))
+        if len(self.location) > 1:
+            point_start = self.location[0]
+            for location_tmp in self.location:
+                point_end = location_tmp
+                if point_end == (-1, -1):
+                    point_start = (-1, -1)
+                    continue
+                if point_start == (-1, -1):
+                    point_start = point_end
+                    continue
+                user.drawLine(point_start[0], point_start[1], point_end[0], point_end[1])
+                point_start = point_end
+        user.end()
+ 
+    def mouseMoveEvent(self, event):
+        location_tmp = (event.pos().x(), event.pos().y())
+        self.location.append(location_tmp)
+        self.update()
+    
+    def mouseReleaseEvent(self, event):
+        location_test = (-1, -1)
+        self.location.append(location_test)
+        
+    def paint_clear(self):
+        self.location = []
+        self.setText('')
+        self.update()
