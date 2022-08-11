@@ -1,0 +1,117 @@
+# -*- coding: utf-8 -*-
+import cv2
+import numpy as np
+import sys
+from PyQt5 import QtWidgets, QtCore, QtGui
+import pyscreenshot as ImageGrab
+from PyQt5.QtGui import *
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import *
+from paint import Paint
+import torch
+from PIL import Image
+from torchvision import transforms
+import os
+os.environ['KMP_DUPLICATE_LIB_OK']="TRUE"
+
+class picture(QWidget):
+    def __init__(self):
+        super(picture, self).__init__()
+        # 设置窗口大小
+        self.resize(600,500)
+        self.center()
+        # 设置窗口标题
+        self.setWindowTitle("Handwritten digit recognition")
+        # 设置窗口的图标
+        self.setWindowIcon(QIcon('label.png'))
+        # 画板标题
+        self.paint_name = QLabel(("please write"), self)
+        self.paint_name.setGeometry(250, 20, 100, 30)
+        # 画板位置
+        self.paint_draw = Paint('', self)
+        self.paint_draw.setGeometry(150, 50, 300, 300)
+        self.paint_draw.setStyleSheet("QLabel{border:1px solid white;background-color: #FFFFFF}")
+        self.paint_draw.setAlignment(Qt.AlignCenter)
+        # 画板归零按钮
+        self.btn_1 = QPushButton("empty", self)
+        self.btn_1.setGeometry(90, 400, 80, 50)
+        self.btn_1.clicked.connect(self.paint_draw.paint_clear)
+        # 获取画板数字图像按钮
+        self.btn_2 = QPushButton('screenshot', self)
+        self.btn_2.setGeometry(260, 400, 80, 50)
+        self.btn_2.clicked.connect(self.screenshot)
+        # 获取画板数字图像按钮
+        self.btn_3 = QPushButton('recognition', self)
+        self.btn_3.setGeometry(430, 400, 80, 50)
+        self.btn_3.clicked.connect(self.predict)
+        
+    # 截屏 
+    def screenshot(self):
+        bbox = (self.x()+150+8, self.y()+50+30, self.x()+150+8+300, self.y()+50+30+300)
+        image = ImageGrab.grab(bbox)
+        image.save("screenshot.jpg")
+    # 调用模型预测
+    def predict(self):
+        bbox = (self.x()+150+8, self.y()+50+30, self.x()+150+8+300, self.y()+50+30+300)
+        image = ImageGrab.grab(bbox)
+        # 转化PIL为opencv
+        image = cv2.cvtColor(np.asarray(image),cv2.COLOR_RGB2BGR)
+        # 灰度化图像
+        image = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
+        # 反转图像
+        for i in range(300):
+            for j in range(300):
+                if image[i,j]>241:
+                    image[i,j] = 0
+                else:
+                    tmp = np.random.randint(low=230,high=255,size=(1),dtype='int')
+                    image[i,j] = tmp[0]
+        # tmp = 
+        # opencv转pillow
+        test_image = Image.fromarray(image)
+        # pillow转tensor
+        test_image_tensor = transform(test_image)
+        test_image_tensor = test_image_tensor.view(1, 3, 256, 256)
+        # 调用模型预测
+        outputs = predictmodel(test_image_tensor)
+        outputs = torch.softmax(outputs, dim=1)
+        outputs = torch.argmax(outputs, dim=1)
+        # 弹出结果
+        QMessageBox.information(self, 
+                             '', 
+                             "result is：" + class_names[outputs.to("cpu").numpy()[0]],
+                            QMessageBox.Ok)
+        
+    def center(self):
+        qr = self.frameGeometry()
+        cp = QDesktopWidget().availableGeometry().center()
+        qr.moveCenter(cp)
+        self.move(qr.topLeft())
+        
+
+if __name__ == "__main__":
+    # 标签
+    class_names = ['0','1','2','3','4','5','6','7','8','9']
+    # 载入模型
+    if  torch.cuda.is_available():
+        predictmodel = torch.load('MnistBP.pkl') 
+    else:
+        predictmodel = torch.load('MnistBP.pkl', 
+                                  map_location=torch.device('cpu'))   
+        predictmodel = predictmodel.module
+    # 
+    def gray2rgb(image):
+        image = image.convert('RGB')
+        return image 
+    transform = transforms.Compose([
+        transforms.Lambda(lambda x: gray2rgb(x)),
+        transforms.Resize(size=256),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406],
+                             [0.229, 0.224, 0.225])
+    ])
+    # 界面
+    app = QtWidgets.QApplication(sys.argv)
+    my = picture()
+    my.show()
+    sys.exit(app.exec_())
